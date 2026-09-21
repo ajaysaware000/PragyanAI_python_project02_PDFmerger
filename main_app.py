@@ -1,121 +1,226 @@
-import gradio as gr
+import io
+import streamlit as st
 from pypdf import PdfReader, PdfWriter
-import os
 
 
-# Show uploaded PDF files
-def show_files(files):
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
-    if not files:
-        return "No PDF files uploaded."
-
-    result = "Uploaded PDF Files:\n\n"
-
-    for i, file in enumerate(files, 1):
-
-        reader = PdfReader(file)
-        pages = len(reader.pages)
-        file_name = os.path.basename(file)
-
-        result += f"{i}. {file_name} - {pages} pages\n"
-
-    return result
+st.set_page_config(
+    page_title="PragyanAI - PDF Merger",
+    page_icon="📄",
+    layout="centered"
+)
 
 
-# Merge PDF files
-def merge_pdfs(files):
+# ============================================================
+# HEADER
+# ============================================================
 
-    if not files:
-        return None, "Please upload PDF files first."
+st.title("PragyanAI - PDF Merger")
 
-    if len(files) < 2:
-        return None, "Please upload at least 2 PDF files."
+st.write(
+    "Upload multiple PDF files, view the file list, "
+    "merge them into a single PDF, and download the result."
+)
 
-    writer = PdfWriter()
+st.info(
+    "Built with Python + Streamlit + PyPDF. "
+    "All PDF files are processed for merging."
+)
 
-    total_pages = 0
 
-    for file in files:
+# ============================================================
+# SESSION STATE
+# ============================================================
 
-        reader = PdfReader(file)
+if "merged_pdf" not in st.session_state:
+    st.session_state.merged_pdf = None
 
-        for page in reader.pages:
-            writer.add_page(page)
-            total_pages += 1
+if "merged_filename" not in st.session_state:
+    st.session_state.merged_filename = "merged_pdf.pdf"
 
-    output_file = "merged_pdf.pdf"
 
-    with open(output_file, "wb") as f:
-        writer.write(f)
+# ============================================================
+# SECTION 1 — UPLOAD PDF FILES
+# ============================================================
 
-    status = (
-        f"PDF files merged successfully!\n"
-        f"Total files: {len(files)}\n"
-        f"Total pages: {total_pages}"
+st.header("1. Upload PDF Files")
+
+uploaded_files = st.file_uploader(
+    "Select PDF Files",
+    type=["pdf"],
+    accept_multiple_files=True
+)
+
+
+# ============================================================
+# SECTION 2 — DISPLAY FILE LIST
+# ============================================================
+
+if uploaded_files:
+
+    st.divider()
+
+    st.header("2. Uploaded PDF File List")
+
+    st.write(
+        f"**Total Files:** {len(uploaded_files)}"
     )
 
-    return output_file, status
+    for index, uploaded_file in enumerate(
+        uploaded_files,
+        start=1
+    ):
+
+        file_size = uploaded_file.size / 1024
+
+        st.write(
+            f"**{index}.** {uploaded_file.name} "
+            f"— {file_size:.2f} KB"
+        )
 
 
-# Gradio interface
-with gr.Blocks(title="PDF Manager") as app:
+# ============================================================
+# SECTION 3 — MERGE PDF FILES
+# ============================================================
 
-    gr.Markdown(
-        """
-        # 📄 PDF Manager
+if uploaded_files:
 
-        Upload multiple PDF files, view their details,
-        merge them, and download the merged PDF.
-        """
+    st.divider()
+
+    st.header("3. Merge PDF Files")
+
+    st.write(
+        "PDF files will be merged in the same order "
+        "as displayed above."
     )
 
-    # PDF Upload
-    files = gr.File(
-        label="Upload PDF Files",
-        file_count="multiple",
-        file_types=[".pdf"],
-        type="filepath"
+    if st.button(
+        "🔗 Merge PDF Files",
+        type="primary",
+        use_container_width=True
+    ):
+
+        if len(uploaded_files) < 2:
+
+            st.warning(
+                "⚠️ Please upload at least 2 PDF files."
+            )
+
+        else:
+
+            try:
+
+                # Create PDF writer
+                pdf_writer = PdfWriter()
+
+                # Add each uploaded PDF
+                for uploaded_file in uploaded_files:
+
+                    uploaded_file.seek(0)
+
+                    pdf_reader = PdfReader(
+                        uploaded_file
+                    )
+
+                    # Add every page
+                    for page in pdf_reader.pages:
+
+                        pdf_writer.add_page(page)
+
+                # Create memory buffer
+                output_buffer = io.BytesIO()
+
+                # Write merged PDF
+                pdf_writer.write(
+                    output_buffer
+                )
+
+                pdf_writer.close()
+
+                # Get PDF bytes
+                st.session_state.merged_pdf = (
+                    output_buffer.getvalue()
+                )
+
+                st.session_state.merged_filename = (
+                    "merged_pdf.pdf"
+                )
+
+                st.success(
+                    f"✅ Successfully merged "
+                    f"{len(uploaded_files)} PDF files!"
+                )
+
+            except Exception as e:
+
+                st.session_state.merged_pdf = None
+
+                st.error(
+                    f"❌ Error while merging PDFs: {e}"
+                )
+
+
+# ============================================================
+# SECTION 4 — MERGED PDF STATUS
+# ============================================================
+
+if st.session_state.merged_pdf:
+
+    st.divider()
+
+    st.header("4. Merged PDF Status")
+
+    st.success(
+        "✅ PDF files have been merged successfully."
     )
 
-    # Show files button
-    show_button = gr.Button(
-        "📋 Show File List"
+    merged_size = (
+        len(st.session_state.merged_pdf) / 1024
     )
 
-    # File information
-    file_list = gr.Textbox(
-        label="File List / Distribution",
-        lines=10
+    st.write(
+        f"**Output File:** "
+        f"{st.session_state.merged_filename}"
     )
 
-    show_button.click(
-        fn=show_files,
-        inputs=files,
-        outputs=file_list
+    st.write(
+        f"**Merged File Size:** "
+        f"{merged_size:.2f} KB"
     )
 
-    # Merge button
-    merge_button = gr.Button(
-        "🔗 Merge PDFs"
-    )
-
-    # Status
-    status = gr.Textbox(
-        label="Status",
-        lines=4
-    )
-
-    # Download file
-    download_file = gr.File(
-        label="Download Merged PDF"
-    )
-
-    merge_button.click(
-        fn=merge_pdfs,
-        inputs=files,
-        outputs=[download_file, status]
+    st.write(
+        "Your merged PDF is ready to download."
     )
 
 
-# Launch application
-app.launch()
+# ============================================================
+# SECTION 5 — DOWNLOAD MERGED PDF
+# ============================================================
+
+if st.session_state.merged_pdf:
+
+    st.divider()
+
+    st.header("5. Download Merged PDF")
+
+    st.download_button(
+        label="⬇️ Download Merged PDF",
+        data=st.session_state.merged_pdf,
+        file_name=st.session_state.merged_filename,
+        mime="application/pdf",
+        use_container_width=True
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "PragyanAI | Python + Streamlit + PyPDF"
+)
