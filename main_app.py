@@ -1,19 +1,22 @@
 import gradio as gr
-from PIL import Image
 from pypdf import PdfReader, PdfWriter
+from PIL import Image
 import os
 import tempfile
 
 
-# --------------------------------------------------
-# Get file information
-# --------------------------------------------------
-def get_file_info(files):
+# ==========================================
+# SHOW FILE INFORMATION
+# ==========================================
+
+def show_files(files):
 
     if not files:
         return "No files uploaded."
 
     result = "CURRENT FILE ORDER\n\n"
+
+    total_pages = 0
 
     for i, file in enumerate(files, 1):
 
@@ -21,22 +24,37 @@ def get_file_info(files):
         extension = os.path.splitext(file_name)[1].lower()
 
         if extension == ".pdf":
+
             reader = PdfReader(file)
             pages = len(reader.pages)
 
-            result += f"{i}. 📄 {file_name} - PDF - {pages} pages\n"
+            total_pages += pages
 
-        else:
-            result += f"{i}. 🖼️ {file_name} - Image\n"
+            result += (
+                f"{i}. 📄 {file_name} "
+                f"- PDF - {pages} pages\n"
+            )
 
-    result += f"\nTotal files: {len(files)}"
+        elif extension in [".jpg", ".jpeg", ".png", ".webp"]:
+
+            result += (
+                f"{i}. 🖼️ {file_name} "
+                f"- Image - 1 page\n"
+            )
+
+            total_pages += 1
+
+    result += "\n-------------------------\n"
+    result += f"Total Files: {len(files)}\n"
+    result += f"Total Pages: {total_pages}"
 
     return result
 
 
-# --------------------------------------------------
-# Move file up
-# --------------------------------------------------
+# ==========================================
+# MOVE FILE UP
+# ==========================================
+
 def move_up(files, position):
 
     if not files:
@@ -45,21 +63,31 @@ def move_up(files, position):
     try:
         position = int(position)
     except:
-        return files, "Enter a valid file number."
+        return files, "Please enter a valid file number."
 
     index = position - 1
 
-    if index <= 0 or index >= len(files):
-        return files, "Cannot move this file up."
+    if index <= 0:
 
-    files[index - 1], files[index] = files[index], files[index - 1]
+        return files, "This file cannot be moved up."
 
-    return files, get_file_info(files)
+    if index >= len(files):
+
+        return files, "Invalid file number."
+
+    # Swap files
+    files[index - 1], files[index] = (
+        files[index],
+        files[index - 1]
+    )
+
+    return files, show_files(files)
 
 
-# --------------------------------------------------
-# Move file down
-# --------------------------------------------------
+# ==========================================
+# MOVE FILE DOWN
+# ==========================================
+
 def move_down(files, position):
 
     if not files:
@@ -68,121 +96,193 @@ def move_down(files, position):
     try:
         position = int(position)
     except:
-        return files, "Enter a valid file number."
+        return files, "Please enter a valid file number."
 
     index = position - 1
 
-    if index < 0 or index >= len(files) - 1:
-        return files, "Cannot move this file down."
+    if index < 0:
 
-    files[index], files[index + 1] = files[index + 1], files[index]
+        return files, "Invalid file number."
 
-    return files, get_file_info(files)
+    if index >= len(files) - 1:
+
+        return files, "This file cannot be moved down."
+
+    # Swap files
+    files[index], files[index + 1] = (
+        files[index + 1],
+        files[index]
+    )
+
+    return files, show_files(files)
 
 
-# --------------------------------------------------
-# Merge PDF and Images
-# --------------------------------------------------
+# ==========================================
+# MERGE PDF AND IMAGE FILES
+# ==========================================
+
 def merge_files(files):
 
     if not files:
-        return None, "Please upload PDF or image files."
+
+        return (
+            None,
+            "❌ Please upload PDF or image files first."
+        )
 
     writer = PdfWriter()
 
     total_pages = 0
 
-    for file in files:
+    temporary_files = []
 
-        file_name = os.path.basename(file)
-        extension = os.path.splitext(file_name)[1].lower()
+    try:
 
-        # -------------------------
-        # PDF
-        # -------------------------
-        if extension == ".pdf":
+        # Process files in current order
+        for file in files:
 
-            reader = PdfReader(file)
+            file_name = os.path.basename(file)
 
-            for page in reader.pages:
-                writer.add_page(page)
-                total_pages += 1
+            extension = os.path.splitext(
+                file_name
+            )[1].lower()
 
-        # -------------------------
-        # Image
-        # -------------------------
-        elif extension in [".jpg", ".jpeg", ".png", ".webp"]:
+            # ----------------------------------
+            # PDF FILE
+            # ----------------------------------
 
-            image = Image.open(file)
+            if extension == ".pdf":
 
-            # Convert image to RGB
-            if image.mode != "RGB":
-                image = image.convert("RGB")
+                reader = PdfReader(file)
 
-            # Temporary PDF
-            temp_pdf = tempfile.NamedTemporaryFile(
-                suffix=".pdf",
-                delete=False
-            )
+                for page in reader.pages:
 
-            temp_pdf.close()
+                    writer.add_page(page)
 
-            image.save(temp_pdf.name, "PDF")
+                    total_pages += 1
 
-            image_reader = PdfReader(temp_pdf.name)
+            # ----------------------------------
+            # IMAGE FILE
+            # ----------------------------------
 
-            for page in image_reader.pages:
-                writer.add_page(page)
-                total_pages += 1
+            elif extension in [
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp"
+            ]:
 
-            os.remove(temp_pdf.name)
+                image = Image.open(file)
 
-    # -------------------------
-    # Save final PDF
-    # -------------------------
-    output_file = "merged_document.pdf"
+                # Convert image to RGB
+                if image.mode != "RGB":
 
-    with open(output_file, "wb") as f:
-        writer.write(f)
+                    image = image.convert("RGB")
 
-    status = (
-        "✅ Files merged successfully!\n\n"
-        f"Total files: {len(files)}\n"
-        f"Total pages: {total_pages}"
-    )
+                # Create temporary PDF
+                temp_file = tempfile.NamedTemporaryFile(
+                    suffix=".pdf",
+                    delete=False
+                )
 
-    return output_file, status
+                temp_path = temp_file.name
+
+                temp_file.close()
+
+                # Save image as PDF
+                image.save(
+                    temp_path,
+                    "PDF"
+                )
+
+                temporary_files.append(temp_path)
+
+                # Read converted PDF
+                image_reader = PdfReader(
+                    temp_path
+                )
+
+                for page in image_reader.pages:
+
+                    writer.add_page(page)
+
+                    total_pages += 1
+
+                image.close()
+
+        # ----------------------------------
+        # CREATE FINAL PDF
+        # ----------------------------------
+
+        output_file = "merged_document.pdf"
+
+        with open(output_file, "wb") as output:
+
+            writer.write(output)
+
+        status = (
+            "✅ MERGE SUCCESSFUL!\n\n"
+            f"Total Files: {len(files)}\n"
+            f"Total Pages: {total_pages}\n"
+            f"Output File: {output_file}"
+        )
+
+        return output_file, status
+
+    except Exception as e:
+
+        return (
+            None,
+            f"❌ Error while merging files:\n{str(e)}"
+        )
+
+    finally:
+
+        # Delete temporary image PDFs
+        for temp_file in temporary_files:
+
+            if os.path.exists(temp_file):
+
+                os.remove(temp_file)
 
 
-# --------------------------------------------------
-# Clear files
-# --------------------------------------------------
-def clear_files():
+# ==========================================
+# CLEAR ALL
+# ==========================================
+
+def clear_all():
 
     return [], "", "", None
 
 
-# --------------------------------------------------
-# Gradio UI
-# --------------------------------------------------
-with gr.Blocks(title="PDF & Image Merger") as app:
+# ==========================================
+# GRADIO APPLICATION
+# ==========================================
+
+with gr.Blocks(
+    title="PDF & Image Merger"
+) as app:
+
+    # ======================================
+    # TITLE
+    # ======================================
 
     gr.Markdown(
         """
         # 📄 PDF & Image Merger
 
-        Upload PDF and image files, arrange their order,
-        view the current order, merge them into one PDF,
-        and download the final file.
+        Upload PDF and image files, arrange their
+        order, view the files, merge them into one
+        PDF and download the final document.
         """
     )
 
-    # ----------------------------------------------
-    # Upload
-    # ----------------------------------------------
+    # ======================================
+    # FILE UPLOAD
+    # ======================================
 
     files = gr.File(
-        label="Upload PDF / Image Files",
+        label="📂 Upload PDF / Image Files",
         file_count="multiple",
         file_types=[
             ".pdf",
@@ -194,33 +294,40 @@ with gr.Blocks(title="PDF & Image Merger") as app:
         type="filepath"
     )
 
-    # ----------------------------------------------
-    # View files
-    # ----------------------------------------------
+    # ======================================
+    # VIEW FILES
+    # ======================================
 
     view_button = gr.Button(
         "👀 View Uploaded Files"
     )
 
     file_list = gr.Textbox(
-        label="Current File Order",
+        label="📋 Current File Order",
         lines=12
     )
 
     view_button.click(
-        fn=get_file_info,
+        fn=show_files,
         inputs=files,
         outputs=file_list
     )
 
-    # ----------------------------------------------
-    # Arrange files
-    # ----------------------------------------------
+    # ======================================
+    # ARRANGE FILES
+    # ======================================
 
-    gr.Markdown("## 🔢 Arrange File Order")
+    gr.Markdown(
+        """
+        ## 🔢 Arrange File Order
+
+        Enter the file number and use Move Up
+        or Move Down.
+        """
+    )
 
     position = gr.Number(
-        label="Enter File Number",
+        label="File Number",
         value=1,
         precision=0
     )
@@ -235,23 +342,42 @@ with gr.Blocks(title="PDF & Image Merger") as app:
             "⬇️ Move Down"
         )
 
+    # IMPORTANT:
+    # These events are INSIDE Blocks
+
     up_button.click(
         fn=move_up,
-        inputs=[files, position],
-        outputs=[files, file_list]
+        inputs=[
+            files,
+            position
+        ],
+        outputs=[
+            files,
+            file_list
+        ]
     )
 
     down_button.click(
         fn=move_down,
-        inputs=[files, position],
-        outputs=[files, file_list]
+        inputs=[
+            files,
+            position
+        ],
+        outputs=[
+            files,
+            file_list
+        ]
     )
 
-    # ----------------------------------------------
-    # Merge
-    # ----------------------------------------------
+    # ======================================
+    # MERGE
+    # ======================================
 
-    gr.Markdown("## 🔀 Merge Files")
+    gr.Markdown(
+        """
+        ## 🔀 Merge Files
+        """
+    )
 
     merge_button = gr.Button(
         "🔀 Merge PDF / Images",
@@ -259,31 +385,34 @@ with gr.Blocks(title="PDF & Image Merger") as app:
     )
 
     status = gr.Textbox(
-        label="Status",
-        lines=5
+        label="📊 Status",
+        lines=6
     )
 
     download_file = gr.File(
-        label="📥 Download Merged File"
+        label="📥 Download Merged PDF"
     )
 
     merge_button.click(
         fn=merge_files,
         inputs=files,
-        outputs=[download_file, status]
+        outputs=[
+            download_file,
+            status
+        ]
     )
 
-    # ----------------------------------------------
-    # Clear
-    # ----------------------------------------------
+    # ======================================
+    # CLEAR
+    # ======================================
 
     clear_button = gr.Button(
         "🗑️ Clear All"
     )
 
     clear_button.click(
-        fn=clear_files,
-        inputs=None,
+        fn=clear_all,
+        inputs=[],
         outputs=[
             files,
             file_list,
@@ -293,8 +422,8 @@ with gr.Blocks(title="PDF & Image Merger") as app:
     )
 
 
-# --------------------------------------------------
-# Launch
-# --------------------------------------------------
+# ==========================================
+# LAUNCH
+# ==========================================
 
 app.launch()
