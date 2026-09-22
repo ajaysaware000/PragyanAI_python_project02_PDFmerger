@@ -1,300 +1,447 @@
-import gradio as gr
-from PIL import Image
+import io
+import streamlit as st
 from pypdf import PdfReader, PdfWriter
-import os
-import tempfile
+import fitz
 
 
-# --------------------------------------------------
-# Get file information
-# --------------------------------------------------
-def get_file_info(files):
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
-    if not files:
-        return "No files uploaded."
-
-    result = "CURRENT FILE ORDER\n\n"
-
-    for i, file in enumerate(files, 1):
-
-        file_name = os.path.basename(file)
-        extension = os.path.splitext(file_name)[1].lower()
-
-        if extension == ".pdf":
-            reader = PdfReader(file)
-            pages = len(reader.pages)
-
-            result += f"{i}. 📄 {file_name} - PDF - {pages} pages\n"
-
-        else:
-            result += f"{i}. 🖼️ {file_name} - Image\n"
-
-    result += f"\nTotal files: {len(files)}"
-
-    return result
+st.set_page_config(
+    page_title="PragyanAI - PDF Merger",
+    page_icon="📄",
+    layout="centered"
+)
 
 
-# --------------------------------------------------
-# Move file up
-# --------------------------------------------------
-def move_up(files, position):
+# ============================================================
+# HEADER
+# ============================================================
 
-    if not files:
-        return files, "No files uploaded."
+st.title("PragyanAI - PDF Merger")
 
-    try:
-        position = int(position)
-    except:
-        return files, "Enter a valid file number."
+st.write(
+    "Upload multiple PDF files, arrange their order, "
+    "view them, merge them, and download the final PDF."
+)
 
-    index = position - 1
-
-    if index <= 0 or index >= len(files):
-        return files, "Cannot move this file up."
-
-    files[index - 1], files[index] = files[index], files[index - 1]
-
-    return files, get_file_info(files)
+st.info(
+    "Built with Python + Streamlit + PyPDF + PyMuPDF"
+)
 
 
-# --------------------------------------------------
-# Move file down
-# --------------------------------------------------
-def move_down(files, position):
+# ============================================================
+# SESSION STATE
+# ============================================================
 
-    if not files:
-        return files, "No files uploaded."
+if "pdf_files" not in st.session_state:
+    st.session_state.pdf_files = []
+
+if "merged_pdf" not in st.session_state:
+    st.session_state.merged_pdf = None
+
+
+# ============================================================
+# FUNCTION — VIEW PDF AS IMAGES
+# ============================================================
+
+def display_pdf(pdf_file):
 
     try:
-        position = int(position)
-    except:
-        return files, "Enter a valid file number."
 
-    index = position - 1
+        # Read PDF bytes
+        pdf_bytes = pdf_file.getvalue()
 
-    if index < 0 or index >= len(files) - 1:
-        return files, "Cannot move this file down."
+        # Open PDF using PyMuPDF
+        document = fitz.open(
+            stream=pdf_bytes,
+            filetype="pdf"
+        )
 
-    files[index], files[index + 1] = files[index + 1], files[index]
+        # Number of pages
+        page_count = len(document)
 
-    return files, get_file_info(files)
+        st.caption(
+            f"Total Pages: {page_count}"
+        )
 
+        # Display every page
+        for page_number in range(page_count):
 
-# --------------------------------------------------
-# Merge PDF and Images
-# --------------------------------------------------
-def merge_files(files):
-
-    if not files:
-        return None, "Please upload PDF or image files."
-
-    writer = PdfWriter()
-
-    total_pages = 0
-
-    for file in files:
-
-        file_name = os.path.basename(file)
-        extension = os.path.splitext(file_name)[1].lower()
-
-        # -------------------------
-        # PDF
-        # -------------------------
-        if extension == ".pdf":
-
-            reader = PdfReader(file)
-
-            for page in reader.pages:
-                writer.add_page(page)
-                total_pages += 1
-
-        # -------------------------
-        # Image
-        # -------------------------
-        elif extension in [".jpg", ".jpeg", ".png", ".webp"]:
-
-            image = Image.open(file)
-
-            # Convert image to RGB
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-
-            # Temporary PDF
-            temp_pdf = tempfile.NamedTemporaryFile(
-                suffix=".pdf",
-                delete=False
+            page = document.load_page(
+                page_number
             )
 
-            temp_pdf.close()
+            # Render page as image
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(1.5, 1.5),
+                alpha=False
+            )
 
-            image.save(temp_pdf.name, "PDF")
+            # Convert to PNG bytes
+            image_bytes = pix.tobytes(
+                "png"
+            )
 
-            image_reader = PdfReader(temp_pdf.name)
+            st.image(
+                image_bytes,
+                caption=f"Page {page_number + 1}",
+                use_container_width=True
+            )
 
-            for page in image_reader.pages:
-                writer.add_page(page)
-                total_pages += 1
+        document.close()
 
-            os.remove(temp_pdf.name)
+    except Exception as e:
 
-    # -------------------------
-    # Save final PDF
-    # -------------------------
-    output_file = "merged_document.pdf"
-
-    with open(output_file, "wb") as f:
-        writer.write(f)
-
-    status = (
-        "✅ Files merged successfully!\n\n"
-        f"Total files: {len(files)}\n"
-        f"Total pages: {total_pages}"
-    )
-
-    return output_file, status
-
-
-# --------------------------------------------------
-# Clear files
-# --------------------------------------------------
-def clear_files():
-
-    return [], "", "", None
-
-
-# --------------------------------------------------
-# Gradio UI
-# --------------------------------------------------
-with gr.Blocks(title="PDF & Image Merger") as app:
-
-    gr.Markdown(
-        """
-        # 📄 PDF & Image Merger
-
-        Upload PDF and image files, arrange their order,
-        view the current order, merge them into one PDF,
-        and download the final file.
-        """
-    )
-
-    # ----------------------------------------------
-    # Upload
-    # ----------------------------------------------
-
-    files = gr.File(
-        label="Upload PDF / Image Files",
-        file_count="multiple",
-        file_types=[
-            ".pdf",
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp"
-        ],
-        type="filepath"
-    )
-
-    # ----------------------------------------------
-    # View files
-    # ----------------------------------------------
-
-    view_button = gr.Button(
-        "👀 View Uploaded Files"
-    )
-
-    file_list = gr.Textbox(
-        label="Current File Order",
-        lines=12
-    )
-
-    view_button.click(
-        fn=get_file_info,
-        inputs=files,
-        outputs=file_list
-    )
-
-    # ----------------------------------------------
-    # Arrange files
-    # ----------------------------------------------
-
-    gr.Markdown("## 🔢 Arrange File Order")
-
-    position = gr.Number(
-        label="Enter File Number",
-        value=1,
-        precision=0
-    )
-
-    with gr.Row():
-
-        up_button = gr.Button(
-            "⬆️ Move Up"
+        st.error(
+            f"❌ Error displaying PDF: {e}"
         )
 
-        down_button = gr.Button(
-            "⬇️ Move Down"
+
+# ============================================================
+# SECTION 1 — UPLOAD PDF
+# ============================================================
+
+st.header("1. Upload PDF")
+
+uploaded_files = st.file_uploader(
+    "Select PDF Files",
+    type=["pdf"],
+    accept_multiple_files=True
+)
+
+
+# ============================================================
+# STORE UPLOADED FILES
+# ============================================================
+
+if uploaded_files:
+
+    new_file_names = [
+        file.name
+        for file in uploaded_files
+    ]
+
+    old_file_names = [
+        file.name
+        for file in st.session_state.pdf_files
+    ]
+
+    if new_file_names != old_file_names:
+
+        st.session_state.pdf_files = uploaded_files
+
+        # Clear previous merged PDF
+        st.session_state.merged_pdf = None
+
+
+# ============================================================
+# SECTION 2 — ARRANGE FILE ORDER
+# ============================================================
+
+if st.session_state.pdf_files:
+
+    st.divider()
+
+    st.header("2. Arrange File Order")
+
+    st.write(
+        "Use the ⬆️ and ⬇️ buttons to arrange the "
+        "PDF files before merging."
+    )
+
+    files = st.session_state.pdf_files
+
+    for index in range(len(files)):
+
+        file = files[index]
+
+        col1, col2, col3, col4 = st.columns(
+            [1, 5, 1, 1]
         )
 
-    up_button.click(
-        fn=move_up,
-        inputs=[files, position],
-        outputs=[files, file_list]
+        with col1:
+
+            st.write(
+                f"**{index + 1}**"
+            )
+
+        with col2:
+
+            st.write(
+                f"📄 **{file.name}**"
+            )
+
+        with col3:
+
+            if st.button(
+                "⬆️",
+                key=f"up_{index}",
+                disabled=(index == 0)
+            ):
+
+                files[index], files[index - 1] = (
+                    files[index - 1],
+                    files[index]
+                )
+
+                st.session_state.pdf_files = files
+
+                # Clear old merged PDF
+                st.session_state.merged_pdf = None
+
+                st.rerun()
+
+        with col4:
+
+            if st.button(
+                "⬇️",
+                key=f"down_{index}",
+                disabled=(index == len(files) - 1)
+            ):
+
+                files[index], files[index + 1] = (
+                    files[index + 1],
+                    files[index]
+                )
+
+                st.session_state.pdf_files = files
+
+                # Clear old merged PDF
+                st.session_state.merged_pdf = None
+
+                st.rerun()
+
+
+# ============================================================
+# SECTION 3 — VIEW UPLOADED FILES
+# ============================================================
+
+if st.session_state.pdf_files:
+
+    st.divider()
+
+    st.header("3. View Uploaded Files")
+
+    st.write(
+        "Select a PDF file to view its pages."
     )
 
-    down_button.click(
-        fn=move_down,
-        inputs=[files, position],
-        outputs=[files, file_list]
+    files = st.session_state.pdf_files
+
+    pdf_options = []
+
+    for index, file in enumerate(
+        files,
+        start=1
+    ):
+
+        pdf_options.append(
+            f"PDF {index} - {file.name}"
+        )
+
+    selected_pdf = st.selectbox(
+        "Select PDF",
+        pdf_options
     )
 
-    # ----------------------------------------------
-    # Merge
-    # ----------------------------------------------
-
-    gr.Markdown("## 🔀 Merge Files")
-
-    merge_button = gr.Button(
-        "🔀 Merge PDF / Images",
-        variant="primary"
+    selected_index = pdf_options.index(
+        selected_pdf
     )
 
-    status = gr.Textbox(
-        label="Status",
-        lines=5
+    selected_file = files[
+        selected_index
+    ]
+
+    st.subheader(
+        f"PDF {selected_index + 1}: "
+        f"{selected_file.name}"
     )
 
-    download_file = gr.File(
-        label="📥 Download Merged File"
-    )
-
-    merge_button.click(
-        fn=merge_files,
-        inputs=files,
-        outputs=[download_file, status]
-    )
-
-    # ----------------------------------------------
-    # Clear
-    # ----------------------------------------------
-
-    clear_button = gr.Button(
-        "🗑️ Clear All"
-    )
-
-    clear_button.click(
-        fn=clear_files,
-        inputs=None,
-        outputs=[
-            files,
-            file_list,
-            status,
-            download_file
-        ]
+    # Display PDF pages
+    display_pdf(
+        selected_file
     )
 
 
-# --------------------------------------------------
-# Launch
-# --------------------------------------------------
+# ============================================================
+# SECTION 4 — MERGE PDF
+# ============================================================
 
-app.launch()
+if st.session_state.pdf_files:
+
+    st.divider()
+
+    st.header("4. Merge PDF")
+
+    st.write(
+        "The PDFs will be merged according to "
+        "the order you arranged above."
+    )
+
+    # Show final order
+    for index, file in enumerate(
+        st.session_state.pdf_files,
+        start=1
+    ):
+
+        st.write(
+            f"**{index}.** {file.name}"
+        )
+
+    st.write("")
+
+    if len(st.session_state.pdf_files) < 2:
+
+        st.warning(
+            "⚠️ Please upload at least 2 PDF files."
+        )
+
+    else:
+
+        if st.button(
+            "🔗 Merge PDF Files",
+            type="primary",
+            use_container_width=True
+        ):
+
+            try:
+
+                # Create PDF writer
+                writer = PdfWriter()
+
+                # Add files in arranged order
+                for file in st.session_state.pdf_files:
+
+                    file.seek(0)
+
+                    reader = PdfReader(
+                        file
+                    )
+
+                    for page in reader.pages:
+
+                        writer.add_page(
+                            page
+                        )
+
+                # Create output buffer
+                output = io.BytesIO()
+
+                writer.write(
+                    output
+                )
+
+                writer.close()
+
+                # Store merged PDF
+                st.session_state.merged_pdf = (
+                    output.getvalue()
+                )
+
+                st.success(
+                    "✅ PDF files merged successfully!"
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"❌ Error while merging PDFs: {e}"
+                )
+
+
+# ============================================================
+# SECTION 5 — MERGED PDF
+# ============================================================
+
+if st.session_state.merged_pdf:
+
+    st.divider()
+
+    st.header("5. Merged PDF")
+
+    st.success(
+        "✅ Your merged PDF is ready!"
+    )
+
+    # --------------------------------------------------------
+    # MERGED PDF VIEWER
+    # --------------------------------------------------------
+
+    st.subheader(
+        "View Merged PDF"
+    )
+
+    try:
+
+        # Open merged PDF
+        merged_document = fitz.open(
+            stream=st.session_state.merged_pdf,
+            filetype="pdf"
+        )
+
+        st.caption(
+            f"Total Pages: "
+            f"{len(merged_document)}"
+        )
+
+        # Display pages
+        for page_number in range(
+            len(merged_document)
+        ):
+
+            page = merged_document.load_page(
+                page_number
+            )
+
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(1.5, 1.5),
+                alpha=False
+            )
+
+            image_bytes = pix.tobytes(
+                "png"
+            )
+
+            st.image(
+                image_bytes,
+                caption=f"Page {page_number + 1}",
+                use_container_width=True
+            )
+
+        merged_document.close()
+
+    except Exception as e:
+
+        st.error(
+            f"❌ Error displaying merged PDF: {e}"
+        )
+
+
+    # --------------------------------------------------------
+    # DOWNLOAD
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Download Merged PDF"
+    )
+
+    st.download_button(
+        label="⬇️ Download Merged PDF",
+        data=st.session_state.merged_pdf,
+        file_name="merged_pdf.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "PragyanAI | Python + Streamlit + PyPDF + PyMuPDF"
+)
