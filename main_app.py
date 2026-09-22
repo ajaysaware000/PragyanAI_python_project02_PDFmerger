@@ -9,7 +9,7 @@ import fitz
 # ============================================================
 
 st.set_page_config(
-    page_title="PragyanAI - PDF Merger",
+    page_title="HI - PDF Merger",
     page_icon="📄",
     layout="centered"
 )
@@ -19,7 +19,7 @@ st.set_page_config(
 # HEADER
 # ============================================================
 
-st.title("PragyanAI - PDF Merger")
+st.title("HI - PDF Merger")
 
 st.write(
     "Upload multiple PDF files, arrange their order, "
